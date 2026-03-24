@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ms-aichain="http://www.mulesoft.org/schema/mule/ms-aichain"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:mcp="http://www.mulesoft.org/schema/mule/mcp"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/mcp http://www.mulesoft.org/schema/mule/mcp/current/mule-mcp.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ms-aichain http://www.mulesoft.org/schema/mule/ms-aichain/current/mule-ms-aichain.xsd">
+	<flow name="search_api_documentation"
+	doc:id="b056faae-7ec5-4b58-b4a3-d8d0e0011a1d">
+		<mcp:tool-listener doc:name="MCP Server - Tool Listener" doc:id="0fdb58c6-7650-4ae6-9c33-fd485618d7a3" config-ref="MCP_Server" name="search_api_documentation">
+			<mcp:description ><![CDATA[Search Confluence documentation to retrieve MuleSoft API details including endpoints, request methods, downstream systems, and integration flow descriptions. Use this when API name is known or when investigating how an integration works.]]></mcp:description>
+			<mcp:parameters-schema ><![CDATA[  {
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Search query such as API name, flow name, or business keyword (example: invoice-sys-api, order processing)"
+      },
+      "spaceKey": {
+        "type": "string",
+        "description": "Confluence space key where API documentation is stored"
+      }
+    },
+    "required": ["query"]
+  }
+}]]></mcp:parameters-schema>
+			<mcp:responses >
+				<mcp:text-resource-tool-response-content uri="#[payload.^raw]" text="dsfsdfsf" />
+			</mcp:responses>
+		</mcp:tool-listener>
+		<set-variable value="#[payload.question]" doc:name="Save question" doc:id="75a9cde9-5518-4407-93d5-00cb33334938" variableName="question" />
+		<set-variable value="#[var q = lower(payload.question)&#10;// Detect shift-type question by keywords or time pattern&#10;var isShiftQuestion = (q contains 'shift') or (q contains 'rota') or (q contains 'on call') or (q contains 'schedule') or (q matches (/.*\d{1,2}\s*(am|pm|:00).*/))&#10;// For shift questions use 'rota' as the search keyword&#10;// so Confluence finds the rota/schedule page directly&#10;var keyword =&#10;                        if ( isShiftQuestion ) 'rota'&#10;                        else do {&#10;	var stopWords = ['what','is','the','are','who','how','where',&#10;                                             'when','does','do','a','an','of','in','for',&#10;                                             'their','his','her','its','our','your','role',&#10;                                             'tell','me','about','shift','on']&#10;	var words = (q replace /[^a-z0-9 ]/ with '') splitBy ' '&#10;	var kws   = words filter ((w) -&gt; sizeOf(w) &gt; 2 and !(stopWords contains w))&#10;	---&#10;	if ( isEmpty(kws) ) payload.question else kws[0]&#10;}&#10;---&#10;{&#10;	isShiftQuestion: isShiftQuestion,&#10;	keyword: keyword&#10;}]" doc:name="Extract keyword" doc:id="b18fd793-ed8b-486e-b420-f0c3c140a481" variableName="questionMeta" />
+		<set-variable value="#[vars.questionMeta.keyword]" doc:name="Set Variable" doc:id="1689bf81-dbcd-4045-93d3-042640982b97" variableName="searchKeyword" />
+		<logger level="INFO" doc:name="Logger" doc:id="7f806afe-2b5d-49df-9d5a-e55b72b8be20" message='#["[Search] Question: " ++ vars.question ++ " | Keyword: " ++ vars.searchKeyword]' />
+		<http:request doc:name="Search Confluence by content" doc:id="4e63e1d7-b73e-43b9-b5f4-a3df4bedaaa2" config-ref="Atlassian_Config" path="/content/search" responseTimeout="30000000">
+			<http:query-params ><![CDATA[#[{
+	"cql": 'text~"' ++ vars.searchKeyword ++ '" AND type=page',
+	"limit": "3",
+	"expand": "body.view,_links"
+}]]]></http:query-params>
+		</http:request>
+		<set-variable value="#[%dw 2.0&#10;output application/json&#10;---&#10;(payload.results default []) map ((page) -&gt; do {&#10;	var raw = page.body.view.value default ''&#10;	var withStructure = raw replace /&lt;\/tr&gt;/ with '\n' replace /&lt;\/td&gt;/ with ' | ' replace /&lt;\/th&gt;/ with ' | ' replace /&lt;br\s*\/?&gt;/ with '\n' replace /&amp;nbsp;/ with ' ' replace /&amp;/ with '&amp;'&#10;	var stripped  = withStructure replace /\&lt;[^&gt;]+\&gt;/ with ''&#10;	var clean     = stripped replace /[ \t]{2,}/ with ' '&#10;	var truncated = if ( sizeOf(clean) &gt; 3000 ) clean[0 to 3000] ++ '...' else clean&#10;	---&#10;	{&#10;		title: page.title,&#10;		url: 'https://' ++ p('atlassian.host') ++ '/wiki' ++ (page.&quot;_links&quot;.webui default ''),&#10;		content: truncated&#10;	}&#10;})]" doc:name="Extract and clean pages" doc:id="db34a41f-9e65-4da9-93aa-28178ca61018" variableName="pages" />
+		<choice doc:name="Any pages found?" doc:id="10fab3c5-c374-4a10-a69f-fdd4932c750e" >
+			<when expression="#[isEmpty(vars.pages)]" >
+				<set-payload value='#[output application/json --- {&#10;                        answer      : "No Confluence pages were found containing information relevant to your question.",&#10;                        source_page : null,&#10;                        source_url  : null&#10;                    }]' doc:name="Set Payload" doc:id="249d277d-4ad7-4b8b-a55a-a4b6945ffd84" mimeType="application/json" />
+			</when>
+			<otherwise >
+				<set-variable value="#[(vars.pages map ((page, idx) -&gt;&#10;                            '--- PAGE ' ++ (idx + 1) ++ ': ' ++ page.title ++ ' ---\n' ++&#10;                            'URL: ' ++ page.url ++ '\n' ++&#10;                            page.content ++ '\n')) joinBy '\n']" doc:name="Build context" doc:id="d12eb647-d6fa-4c4c-b42b-27f1c0a498eb" variableName="context" />
+				<ee:transform doc:name="Build prompt" doc:id="76567418-a012-439f-b8ed-4abd5b586ce1" >
+					<ee:message />
+					<ee:variables >
+						<ee:set-variable variableName="prompt" ><![CDATA[%dw 2.0
+output application/java
+---
+if (vars.questionMeta.isShiftQuestion)
+                            // ── SHIFT / ROTA PROMPT ──────────────────────
+                            'You are a precise shift schedule assistant.\n\n' ++
+                            'The rota table has these columns: start date, end date, timing, name.\n' ++
+                            'A person is ON SHIFT if ALL of these are true:\n' ++
+                            '  1. The query DATE falls between their start date and end date (inclusive).\n' ++
+                            '  2. The query TIME falls within their timing window.\n\n' ++
+                            'RULES:\n' ++
+                            '1. Compare dates carefully. Normalise all date formats before comparing.\n' ++
+                            '2. Answer ONLY from the rota table provided — do not guess.\n' ++
+                            '3. If no one matches, say: No one is scheduled on shift at that time.\n' ++
+                            '4. Keep your answer short — just the persons name and their shift window.\n\n' ++
+                            'ROTA TABLE CONTENT:\n' ++ vars.context ++ '\n' ++
+                            'QUESTION: ' ++ vars.question ++ '\n\n' ++
+                            'Reply with JSON only, no markdown fences:\n' ++
+                            '{"answer":"...","source_page":"...","source_url":"..."}'
+                            
+else
+						
+						// ── GENERAL EXTRACTION PROMPT ────────────────
+						"You are a precise information extraction assistant.\n\n" ++
+                        "RULES:\n" ++
+                        "1. Answer ONLY from the Confluence content provided below.\n" ++
+                        '2. If the answer is in a table, read each row carefully and extract the correct value.\n' ++
+                        '3. If the answer is not found, say: "This information was not found in the Confluence pages." \n' ++
+                        '4. Do NOT guess or use outside knowledge.\n' ++
+                        '5. Keep your answer short and direct.\n\n' ++
+                        'CONFLUENCE CONTENT:\n' ++ vars.context ++ '\n' ++
+                        'QUESTION: ' ++ vars.question ++ '\n\n' ++
+                        'Reply with JSON only — no markdown fences:\n' ++
+                        '{"answer":"...","source_page":"...","source_url":"..."}']]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<ms-aichain:chat-answer-prompt doc:id="cb804987-c25c-4b8d-985f-e0dd5327397a" config-ref="MuleSoft_AI_Chain_Config" doc:name="Chat answer prompt" >
+					<ms-aichain:prompt ><![CDATA[#[vars.prompt]]]></ms-aichain:prompt>
+				</ms-aichain:chat-answer-prompt>
+				<set-payload value='#[%dw 2.0&#10;output application/json&#10;var raw = payload.response&#10;---&#10;read(raw, "application/json")]' doc:name="Shape response" doc:id="70e099a1-d74b-4ba8-84fc-f54d0544a42b" mimeType="application/json" />
+				<logger level="INFO" doc:name="Logger" doc:id="c363e14c-df47-43a6-966b-d3b44f96bff4" message="#[payload]"/>
+			</otherwise>
+		</choice>
+	</flow>
+
+</mule>

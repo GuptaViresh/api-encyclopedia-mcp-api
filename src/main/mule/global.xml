@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule
+	xmlns:ms-aichain="http://www.mulesoft.org/schema/mule/ms-aichain"
+	xmlns:mcp="http://www.mulesoft.org/schema/mule/mcp"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/mcp http://www.mulesoft.org/schema/mule/mcp/current/mule-mcp.xsd
+http://www.mulesoft.org/schema/mule/ms-aichain http://www.mulesoft.org/schema/mule/ms-aichain/current/mule-ms-aichain.xsd">
+	<http:listener-config name="HTTP_Listener_config"
+		doc:name="HTTP Listener config"
+		doc:id="26475f19-ea31-4946-91bc-10ad470fce63">
+		<http:listener-connection host="0.0.0.0"
+			port="8082" readTimeout="3000000" connectionIdleTimeout="3000000" />
+	</http:listener-config>
+	<mcp:server-config name="MCP_Server"
+		doc:name="MCP Server" doc:id="1ed05baa-fc47-4876-af90-dcba14f0cd6a"
+		serverName="Mule MCP Server" serverVersion="1.0.0">
+		<mcp:sse-server-connection
+			listenerConfig="HTTP_Listener_config" requestTimeout="3000000" />
+	</mcp:server-config>
+	<http:request-config name="Atlassian_Config"
+		basePath="/wiki/rest/api">
+		<http:request-connection protocol="HTTPS"
+			host="${atlassian.host}" port="443">
+			<http:authentication>
+				<http:basic-authentication
+					username="${atlassian.username}" password="${atlassian.password}" />
+			</http:authentication>
+		</http:request-connection>
+	</http:request-config>
+	<ms-aichain:config name="MuleSoft_AI_Chain_Config"
+		llmType="AZURE_OPENAI" configType="Configuration Json"
+		modelName="gpt-4o-mini" doc:name="MuleSoft AI Chain Config"
+		doc:id="2e85aa43-4bbb-4053-8728-fd2f18e9880d"
+		filePath='#[mule.home ++ "/apps/" ++ app.name ++ "/envVars.json"]'
+		llmTimeout="600" />
+	<configuration-properties
+		doc:name="Configuration properties"
+		doc:id="7e1f1cca-d252-4602-8902-0fa3b99695f4" file="application.yaml" />
+</mule>
